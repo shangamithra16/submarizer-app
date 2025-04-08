@@ -1,6 +1,6 @@
 langchain
 langchain-core
-langchain-community
+git+https://github.com/langchain-ai/langchain@v0.1.13#subdirectory=libs/community
 langchain_groq
 langchain_openai
 pypdf
