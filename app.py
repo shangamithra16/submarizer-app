@@ -4,33 +4,28 @@ from langchain.text_splitter import CharacterTextSplitter
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from dotenv import load_dotenv
 import mysql.connector
 import hashlib
-import os
 import razorpay 
 from datetime import datetime, timedelta
-import requests
 
-
-load_dotenv()
+# Razorpay client setup using Streamlit secrets
 razorpay_client = razorpay.Client(
-    auth=(os.getenv("RAZORPAY_KEY_ID"), os.getenv("RAZORPAY_KEY_SECRET"))
+    auth=(st.secrets["RAZORPAY_KEY_ID"], st.secrets["RAZORPAY_KEY_SECRET"])
 )
 
 def get_db_connection():
     return mysql.connector.connect(
-        host=os.getenv("DB_HOST"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD"),
-        database=os.getenv("DB_NAME")
+        host=st.secrets["DB_HOST"],
+        user=st.secrets["DB_USER"],
+        password=st.secrets["DB_PASSWORD"],
+        database=st.secrets["DB_NAME"]
     )
 
 def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Check if columns exist and add them if not
     cursor.execute("""
     SELECT COLUMN_NAME 
     FROM INFORMATION_SCHEMA.COLUMNS 
@@ -45,7 +40,6 @@ def init_db():
         ADD COLUMN razorpay_payment_id VARCHAR(255) NULL
         """)
 
-    # Rest of your init_db code...
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS user_files (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -61,26 +55,18 @@ def init_db():
     cursor.close()
     conn.close()
     
-
-
 init_db()
-# Initialize Razorpay client
 
-
-# Razorpay payment functions
+# Razorpay functions
 def create_razorpay_payment_link(amount, user_id, email):
     try:
         payment_link = razorpay_client.payment_link.create({
             "amount": int(amount * 100),
             "currency": "INR",
             "description": "EasyLearn Monthly Subscription",
-            "customer": {
-                "email": email
-            },
-            "notify": {
-                "email": True
-            },
-            "callback_url": "http://localhost:8501",  # use your deployed app URL if needed
+            "customer": {"email": email},
+            "notify": {"email": True},
+            "callback_url": "http://localhost:8501",
             "callback_method": "get"
         })
         return payment_link['short_url'], payment_link['id']
@@ -91,20 +77,16 @@ def create_razorpay_payment_link(amount, user_id, email):
 def verify_payment_link(payment_link_id):
     try:
         payment_link = razorpay_client.payment_link.fetch(payment_link_id)
-        if payment_link["status"] == "paid":
-            return True
-        return False
+        return payment_link["status"] == "paid"
     except:
         return False
-
 
 def update_subscription_status(user_id):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
         now = datetime.now()
-        end_date = now + timedelta(days=30)  # 1 month subscription
-        
+        end_date = now + timedelta(days=30)
         cursor.execute(
             """UPDATE users 
             SET is_subscribed = TRUE, 
@@ -120,35 +102,28 @@ def update_subscription_status(user_id):
     finally:
         cursor.close()
         conn.close()
+
 def check_subscription(user_id):
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     try:
         cursor.execute(
-            """SELECT is_subscribed, subscription_end_date 
-            FROM users WHERE id = %s""",
+            "SELECT is_subscribed, subscription_end_date FROM users WHERE id = %s",
             (user_id,))
         user = cursor.fetchone()
-        
         if user and user['is_subscribed']:
             if user['subscription_end_date'] and user['subscription_end_date'] > datetime.now():
                 return True
             else:
-                # Subscription expired
-                cursor.execute(
-                    "UPDATE users SET is_subscribed = FALSE WHERE id = %s",
-                    (user_id,))
+                cursor.execute("UPDATE users SET is_subscribed = FALSE WHERE id = %s", (user_id,))
                 conn.commit()
-                return False
         return False
     finally:
         cursor.close()
         conn.close()
 
-
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
-
 
 def create_user(username, password, email):
     conn = get_db_connection()
@@ -171,7 +146,7 @@ def authenticate_user(username, password):
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     cursor.execute(
-        "SELECT id, username, password_hash FROM users WHERE username = %s",
+        "SELECT id, username, password_hash, email FROM users WHERE username = %s",
         (username.lower(),)
     )
     user = cursor.fetchone()
@@ -182,7 +157,7 @@ def authenticate_user(username, password):
         return user
     return None
 
-
+# UI Styling
 st.markdown(
     """
     <style>
@@ -219,22 +194,15 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-
+# Auth state
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 if 'current_user' not in st.session_state:
     st.session_state.current_user = None
 
-
+# Login/Signup
 if not st.session_state.authenticated:
-    st.markdown(
-        """
-        <div style='display: flex; align-items: center; gap: 10px;'>
-            <h1 style='margin: 0; color: white;'>EasyLearn - Login</h1>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    st.markdown("<h1 style='color: white;'>EasyLearn - Login</h1>", unsafe_allow_html=True)
     
     tab1, tab2 = st.tabs(["Login", "Sign Up"])
     
@@ -243,7 +211,6 @@ if not st.session_state.authenticated:
             username = st.text_input("Username")
             password = st.text_input("Password", type="password")
             submit = st.form_submit_button("Login")
-            
             if submit:
                 user = authenticate_user(username, password)
                 if user:
@@ -273,13 +240,12 @@ if not st.session_state.authenticated:
                         st.error("Username or email already exists")
     
     st.stop()
-if st.session_state.authenticated:
-    # Check subscription status - this should block access if not subscribed
-   if not check_subscription(st.session_state.current_user['id']):
+
+# Subscription check
+if not check_subscription(st.session_state.current_user['id']):
     st.warning("""
-    🔒 Premium Access Required\n
+    🔒 Premium Access Required  
     To use EasyLearn, please subscribe for ₹10/month.
-    This helps us maintain and improve the service.
     """)
     
     if st.button("Subscribe Now (₹10)"):
@@ -289,16 +255,14 @@ if st.session_state.authenticated:
             st.session_state.current_user.get('email', '')
         )
         if payment_link_url:
-            # Save the link ID to verify after redirection
             st.session_state.razorpay_payment_link_id = payment_link_id
             st.markdown(f"[👉 Click here to pay securely via Razorpay]({payment_link_url})", unsafe_allow_html=True)
             st.stop()
-    
-    # Handle Razorpay return
+
     if "payment_link_id" in st.query_params:
-        returned_payment_link_id = st.query_params["payment_link_id"]
-        if returned_payment_link_id == st.session_state.get("razorpay_payment_link_id"):
-            if verify_payment_link(returned_payment_link_id):
+        returned_id = st.query_params["payment_link_id"]
+        if returned_id == st.session_state.get("razorpay_payment_link_id"):
+            if verify_payment_link(returned_id):
                 if update_subscription_status(st.session_state.current_user['id']):
                     st.success("✅ Subscription activated! Thank you for your support.")
                     st.balloons()
@@ -307,35 +271,32 @@ if st.session_state.authenticated:
                     st.error("Error updating subscription.")
             else:
                 st.error("❌ Payment not completed or failed.")
-    
     st.stop()
 
-         
-
+# App Header
 st.markdown(
-    """
+    f"""
     <div style='display: flex; align-items: center; gap: 10px;'>
         <h1 style='margin: 0; color: white;'>EasyLearn</h1>
         <div style='margin-left: auto;'>
-            <span style='color: white;'>Welcome, {}</span>
-            <button onclick="window.location.href='?logout=true'" style='margin-left: 10px; background-color: #FF6B6B; color: white; border: none; border-radius: 4px; padding: 5px 10px; cursor: pointer;'>Logout</button>
+            <span style='color: white;'>Welcome, {st.session_state.current_user['username']}</span>
+            <button onclick="window.location.href='?logout=true'" style='margin-left: 10px; background-color: #FF6B6B; color: white; border: none; border-radius: 4px; padding: 5px 10px;'>Logout</button>
         </div>
     </div>
-    """.format(st.session_state.current_user['username']),
+    """,
     unsafe_allow_html=True
 )
+
 if st.query_params.get('logout'):
     st.session_state.authenticated = False
     st.session_state.current_user = None
     st.query_params.clear()
     st.rerun()
 
-
-
+# Langchain setup
 llm = ChatOpenAI(model="gpt-4o-mini")
 parser = StrOutputParser()
 prompt_template = ChatPromptTemplate.from_template("Summarize the following document {document}")
-
 chain = prompt_template | llm | parser
 
 uploaded_file = st.file_uploader("Upload a Text, PDF or CSV file.", type=["txt", "pdf", "csv"])
@@ -361,7 +322,6 @@ if uploaded_file is not None:
             text_splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=50)
             chunks = text_splitter.split_documents(doc)
 
-
             conn = get_db_connection()
             cursor = conn.cursor()
             cursor.execute(
@@ -381,25 +341,17 @@ if uploaded_file is not None:
 def summarize_text(chunks):
     chunk_summaries = []
     with st.spinner("Summarizing Chunks..."):
-        try:
-            for chunk in chunks:
-                chunk_prompt = ChatPromptTemplate.from_template("Summarize the following chunk:\n\n{document}")
-                chunk_chain = chunk_prompt | llm | parser
-                chunk_summary = chunk_chain.invoke({"document": chunk})
-                chunk_summaries.append(chunk_summary)
-        except Exception as e:
-            st.error(f"Error summarizing chunks: {e}")
-            return None
+        for chunk in chunks:
+            chunk_prompt = ChatPromptTemplate.from_template("Summarize the following chunk:\n\n{document}")
+            chunk_chain = chunk_prompt | llm | parser
+            chunk_summary = chunk_chain.invoke({"document": chunk})
+            chunk_summaries.append(chunk_summary)
     
     with st.spinner("Creating final summary..."):
-        try:
-            combined_summaries = "\n".join(chunk_summaries)
-            final_prompt = ChatPromptTemplate.from_template("Create a comprehensive summary:\n\n{document}")
-            final_chain = final_prompt | llm | parser 
-            return final_chain.invoke({"document": combined_summaries})
-        except Exception as e:
-            st.error(f"Error creating final summary: {e}")
-            return None
+        combined = "\n".join(chunk_summaries)
+        final_prompt = ChatPromptTemplate.from_template("Create a comprehensive summary:\n\n{document}")
+        final_chain = final_prompt | llm | parser 
+        return final_chain.invoke({"document": combined})
 
 def generate_flashcards(text):
     flashcard_prompt = ChatPromptTemplate.from_template("Generate 5 flashcards (Q&A) from:\n\n{document}")
@@ -412,18 +364,12 @@ if st.button("Summarize"):
         st.session_state.final_summary = final_summary 
         st.subheader("Summary")
         st.write(final_summary)
-        
-        st.download_button(
-            label="Download Summary",
-            data=final_summary,
-            file_name="summary.txt",
-            mime="text/plain"
-        )
+        st.download_button("Download Summary", data=final_summary, file_name="summary.txt", mime="text/plain")
 
 if st.button("Generate Flashcards"):
     with st.spinner("Generating flashcards..."):
-        flashcards = generate_flashcards(st.session_state.final_summary if 'final_summary' in st.session_state else doc[0].page_content)
-        
+        base_text = st.session_state.final_summary if 'final_summary' in st.session_state else doc[0].page_content
+        flashcards = generate_flashcards(base_text)
         if flashcards:
             st.subheader("Flashcards")
             flashcard_list = flashcards.split('\n')
@@ -449,9 +395,14 @@ if user_input:
         st.error("Please generate a summary first!")
     else:
         st.session_state.messages.append({"role": "user", "content": user_input})
-        chatbot_prompt = ChatPromptTemplate.from_template("You are an AI assistant. Answer the following question based on this summary:\n\n{summary}\n\nQ: {question}")
+        chatbot_prompt = ChatPromptTemplate.from_template(
+            "You are an AI assistant. Answer the following question based on this summary:\n\n{summary}\n\nQ: {question}"
+        )
         chatbot_chain = chatbot_prompt | llm | parser
-        ai_response = chatbot_chain.invoke({"summary": st.session_state.final_summary, "question": user_input})
+        ai_response = chatbot_chain.invoke({
+            "summary": st.session_state.final_summary,
+            "question": user_input
+        })
         st.session_state.messages.append({"role": "assistant", "content": ai_response})
         with st.chat_message("assistant"):
             st.write(ai_response)
