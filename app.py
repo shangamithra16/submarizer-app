@@ -36,7 +36,7 @@ st.title("Summarizer & Flashcards App")
 
 uploaded_file = st.file_uploader("Upload a Text, PDF or CSV file.", type=["txt", "pdf", "csv"])
 
-llm = ChatOpenAI(model="gpt-4o-mini")
+llm = ChatOpenAI(model="gpt-3.5-turbo")
 parser = StrOutputParser()
 prompt_template = ChatPromptTemplate.from_template("Summarize the following document {document}")
 
