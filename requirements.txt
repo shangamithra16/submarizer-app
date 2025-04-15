@@ -6,4 +6,4 @@ langchain_openai
 pypdf
 python-dotenv
 streamlit
-razorpay>=2.8.3
+
