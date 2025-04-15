@@ -1,9 +1,8 @@
 langchain
 langchain-core
 langchain-community
-langchain_groq
-langchain_openai
+langchain-groq
+langchain-openai
 pypdf
 python-dotenv
 streamlit
-
