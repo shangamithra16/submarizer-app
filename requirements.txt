@@ -1,6 +1,6 @@
 langchain
 langchain-core
-langchain_community
+langchain-community
 langchain_groq
 langchain_openai
 pypdf
